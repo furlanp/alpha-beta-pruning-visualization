@@ -1,4 +1,5 @@
 import tkinter as tk
+import tkinter.font as tkFont
 
 class TreeNode:
     def __init__(self, is_max):
@@ -7,12 +8,14 @@ class TreeNode:
         self.value = None
         self.alpha = None
         self.beta = None
+        self.prev_alpha = None
+        self.prev_beta = None
 
     def is_leaf(self):
         return len(self.children) == 0
     
     def set_value(self, oth):
-        if self.value:
+        if self.value is not None:
             v1, v2 = self.value, oth.value
             self.value = max(v1, v2) if self.is_max else min(v1, v2)
         else:
@@ -20,8 +23,12 @@ class TreeNode:
     
     def alpha_beta_propagate_up(self, child):
         if self.is_max:
+            self.prev_alpha = self.alpha
+            self.prev_child_beta = child.value
             self.alpha = max(self.alpha, child.value)
         else:
+            self.prev_beta = self.beta
+            self.prev_child_alpha = child.value
             self.beta = min(self.beta, child.value)
 
     def alpha_beta_propagate_down(self, parent):
@@ -35,19 +42,31 @@ class TreeNode:
                 self.beta = self.value
     
     def value_string(self):
-        if self.value:
+        if self.value is not None:
             return str(int(self.value)) if self.value.is_integer() else str(self.value)
         else:
             return ""
     
-    def alpha_beta_string(self):
-        if self.alpha and self.beta:
-            alpha_string = "- \u221E" if self.alpha == float('-inf') else (str(int(self.alpha)) if self.alpha.is_integer() else str(self.alpha))
-            beta_string = "+ \u221E" if self.beta == float('inf') else (str(int(self.beta)) if self.beta.is_integer() else str(self.beta))
-            return f"\u03B1: {alpha_string}\n\u03B2: {beta_string}"
-        else:
+    def alpha_beta_string(self, display_eq):
+        if self.alpha is None or self.beta is None:
             return ""
+        
+        def to_string(f):
+            if f.is_integer():
+                return str(int(f))
+            return str(f)
 
+        if self.is_max and display_eq:
+            alpha_string = f"max({to_string(self.prev_alpha)}, {to_string(self.prev_child_beta)}) = {to_string(self.alpha)}" 
+        else:
+            alpha_string = to_string(self.alpha)
+        
+        if not self.is_max and display_eq:
+            beta_string = f"min({to_string(self.prev_beta)}, {to_string(self.prev_child_alpha)}) = {to_string(self.beta)}"
+        else:
+            beta_string = to_string(self.beta)
+
+        return f"\u03B1: {alpha_string}\n\u03B2: {beta_string}"
             
     # creates TreeNode structure from the given structure and leaf values
     def generate_tree(tree_structure_lst, leaf_values):
@@ -85,6 +104,22 @@ class TreeNode:
         self.y = curr_y 
 
         return curr_x
+
+    # sets node positions to match the center of the canvas
+    def center_node(self, offset_x, offset_y):
+        self.x -= offset_x
+        self.y -= offset_y
+
+        for child in self.children:
+            child.center_node(offset_x, offset_y)
+
+    # traverses the tree and returns sets of possible x and y
+    def get_possible_coords(self, set_x, set_y):
+        set_x.add(self.x)
+        set_y.add(self.y)
+
+        for child in self.children:
+            child.get_possible_coords(set_x, set_y)
 
 class AlphaBetaSimulator:
     def __init__(self, app, root_node):
@@ -185,7 +220,8 @@ class AlphaBetaSimulator:
                         self.action_stack.append(('MOVE_UP', prev_node, prev_value, prev_alpha, prev_beta, cutoff))
 
         if draw:
-            self.app.draw_tree(self.root_node, 20, marked_node=self.curr_node, cutoffs=self.cutoffs)
+            is_prop_up = len(self.action_stack) > 0 and self.action_stack[-1][0] == "MOVE_UP"
+            self.app.draw_tree(self.root_node, self.app.node_radius, marked_node=self.curr_node, cutoffs=self.cutoffs, is_prop_up=is_prop_up)
     
     def backward(self, draw=True):
         if len(self.action_stack) == 0:
@@ -242,18 +278,31 @@ class AlphaBetaSimulator:
             self.action_stack.pop()
 
         if draw:
-            self.app.draw_tree(self.root_node, 20, marked_node=self.curr_node, cutoffs=self.cutoffs)
+            self.app.draw_tree(self.root_node, self.app.node_radius, marked_node=self.curr_node, cutoffs=self.cutoffs)
 
     def all_backward(self):
         while len(self.action_stack):
             self.backward(draw=False)
-        self.app.draw_tree(self.root_node, 20, marked_node=self.curr_node, cutoffs=self.cutoffs)
+        self.app.draw_tree(self.root_node, self.app.node_radius, marked_node=self.curr_node, cutoffs=self.cutoffs)
 
 
     def all_forward(self):
         while not self.over:
             self.forward(draw=False)
-        self.app.draw_tree(self.root_node, 20, marked_node=self.curr_node, cutoffs=self.cutoffs) 
+        self.app.draw_tree(self.root_node, self.app.node_radius, marked_node=self.curr_node, cutoffs=self.cutoffs) 
+
+class MovableCanvas(tk.Canvas):
+    def __init__(self, master=None, **kwargs):
+        tk.Canvas.__init__(self, master, **kwargs)
+        self.bind('<ButtonPress-1>', lambda ev: self.scan_mark(ev.x, ev.y))
+        self.bind('<B1-Motion>', lambda ev: self.scan_dragto(ev.x, ev.y, gain=1))
+        self.bind("<MouseWheel>", self.zoom)
+
+    def zoom(self, ev):
+        x = self.canvasx(ev.x)
+        y = self.canvasx(ev.y)
+        scale = 1.001 ** ev.delta
+        self.scale(tk.ALL, x, y, scale, scale)
 
 class App:
     def __init__(self):
@@ -261,78 +310,82 @@ class App:
         self.root = tk.Tk()
         self.root.title("Alpha Beta Pruning")         
 
-        self.window_width = 1500
-        self.window_height = 900
+        window_width = 1024    
+        window_height = 768 
+        self.node_radius = 30 
 
         self.tree_structure_lst = None
         self.leaf_values_lst = None
 
-        self.root.geometry(f"{self.window_width}x{self.window_height}")
-        self.root.resizable(False, False)
-
+        self.root.geometry(f"{window_width}x{window_height}")
         self.create_widgets()
 
         self.root.mainloop()
 
-    def create_widgets(self):
+    def create_widgets(self): 
+        self.widget_frame = tk.Frame(self.root, bg="lightgray")
+        self.widget_frame.pack(fill=tk.X)
+
         # tree structure input
-        tk.Label(self.root, text="Enter tree structure: ").place(x=20, y=20, width=120, height=20)
+        self.tree_structure_label = tk.Label(self.widget_frame, text="Enter tree structure:", font=tkFont.Font(size=10), bg="lightgray")
+        self.tree_structure_label.grid(row=0, column=0, padx=10, pady=10, sticky=tk.W)
 
         self.tree_structure = tk.StringVar()
 
-        self.tree_structure_input = tk.Entry(self.root, textvariable=self.tree_structure)
-        self.tree_structure_input.place(x=160, y=20, width=300, height=20)
+        self.tree_structure_input = tk.Entry(self.widget_frame, textvariable=self.tree_structure, font=tkFont.Font(size=10), width=40)
+        self.tree_structure_input.grid(row=0, column=1, padx=(0, 10), pady=10)
         # default value
-        self.tree_structure_input.insert(tk.END, "3|3,3,3|3,3,3,3,3,3,3,3,3")
+        self.tree_structure_input.insert(tk.END, "2|2,2|2,2,2,2")
+
+        self.tree_structure.trace_add("write", lambda *args: self.tree_structure_input.config(bg="white"))
 
         # leaf values input
-        tk.Label(self.root, text="Enter leaf values: ").place(x=20, y=50, width=120, height=20)
+        self.leaf_values_label = tk.Label(self.widget_frame, text="Enter leaf values:", font=tkFont.Font(size=10), bg="lightgray")
+        self.leaf_values_label.grid(row=1, column=0, padx=10, pady=(0, 10), sticky=tk.W)
 
         self.leaf_values = tk.StringVar()
 
-        self.leaf_values_input = tk.Entry(self.root, textvariable=self.leaf_values)
-        self.leaf_values_input.place(x=160, y=50, width=300, height=20)
+        self.leaf_values_input = tk.Entry(self.widget_frame, textvariable=self.leaf_values, font=tkFont.Font(size=10), width=40)
+        self.leaf_values_input.grid(row=1, column=1, padx=(0, 10), pady=(0, 10))
         # default value
-        self.leaf_values_input.insert(tk.END, "-11,-20,5,-10,-12,-5,-6,2,3,-18,12,-1,12,12,4,6,-16,14,-1,-2,-7,-8,18,2,6,7,-13")
+        self.leaf_values_input.insert(tk.END, "11,-20,12,-10,-12,-5,-6,2")
+
+        self.leaf_values.trace_add("write", lambda *args: self.leaf_values_input.config(bg="white"))
 
         # generate tree button
-        self.generate_tree_btn = tk.Button(self.root, text="Generate tree", command=self.validate_input)
-        self.generate_tree_btn.place(x=480, y=20, width=100, height=20)
+        self.generate_tree_btn = tk.Button(self.widget_frame, text="Generate tree", command=self.validate_input, font=tkFont.Font(size=10))
+        self.generate_tree_btn.grid(row=0, column=2, padx=10, pady=10, sticky=tk.E+tk.W)
 
         # reset button
-        self.reset_btn = tk.Button(self.root, text="Reset current tree", command=self.prepare_simulator)
-        self.reset_btn.place(x=480, y=50, width=100, height=20)
+        self.reset_btn = tk.Button(self.widget_frame, text="Reset current tree", command=self.prepare_simulator, font=tkFont.Font(size=10))
+        self.reset_btn.grid(row=1, column=2, padx=10, pady=(0, 10), sticky=tk.E+tk.W)
 
         # canvas
-        self.canvas = tk.Canvas(self.root, bg='white')
-        self.canvas.place(x=0, y=100, width=self.window_width-20, height=self.window_height-120)
-
-        scroll_y = tk.Scrollbar(self.root, orient="vertical", command=self.canvas.yview)
-        scroll_y.place(x=self.window_width-20, y=100, width=20, height=self.window_height-100)
-
-        scroll_x = tk.Scrollbar(self.root, orient="horizontal", command=self.canvas.xview)
-        scroll_x.place(x=0, y=self.window_height-20, width=self.window_width-20, height=20)
+        self.canvas = MovableCanvas(self.root, bg="white")
+        self.canvas.pack(fill=tk.BOTH, expand=True)
 
         # simulation controls
-        tk.Label(self.root, text="One forward / backward step: ").place(x=650, y=20, width=160, height=20)
+        self.one_step_label = tk.Label(self.widget_frame, text="One forward / backward step:", font=tkFont.Font(size=10), bg="lightgray")
+        self.one_step_label.grid(row=0, column=3, padx=(20, 10), pady=10, sticky=tk.W)
 
-        self.backward_button = tk.Button(self.root, text="<<")
-        self.backward_button.place(x=830, y=20, width=40, height=20)
+        self.backward_button = tk.Button(self.widget_frame, text="<<", font=tkFont.Font(size=10))
+        self.backward_button.grid(row=0, column=4, pady=10, sticky=tk.E+tk.W)
 
-        self.forward_button = tk.Button(self.root, text=">>")
-        self.forward_button.place(x=870, y=20, width=40, height=20)
+        self.forward_button = tk.Button(self.widget_frame, text=">>", font=tkFont.Font(size=10))
+        self.forward_button.grid(row=0, column=5, pady=10, sticky=tk.E+tk.W)
 
-        tk.Label(self.root, text="All forward / backward steps: ").place(x=650, y=50, width=160, height=20)
+        self.all_steps_label = tk.Label(self.widget_frame, text="All forward / backward steps:", font=tkFont.Font(size=10), bg="lightgray")
+        self.all_steps_label.grid(row=1, column=3, padx=(20, 10), pady=(0, 10), sticky=tk.W)
 
-        self.all_backward_button = tk.Button(self.root, text="<<<")
-        self.all_backward_button.place(x=830, y=50, width=40, height=20)
+        self.all_backward_button = tk.Button(self.widget_frame, text="<<<", font=tkFont.Font(size=10))
+        self.all_backward_button.grid(row=1, column=4, pady=(0, 10), sticky=tk.E+tk.W)
 
-        self.all_forward_button = tk.Button(self.root, text=">>>")
-        self.all_forward_button.place(x=870, y=50, width=40, height=20)
+        self.all_forward_button = tk.Button(self.widget_frame, text=">>>", font=tkFont.Font(size=10))
+        self.all_forward_button.grid(row=1, column=5, pady=(0, 10), sticky=tk.E+tk.W)
 
-        # instrctions
-        self.instruction_btn = tk.Button(self.root, text="Instructions", command=self.show_instructions)
-        self.instruction_btn.place(x=1000, y=20, width=100, height=20)
+        # instructions
+        self.instruction_btn = tk.Button(self.widget_frame, text="Instructions", command=self.show_instructions, font=tkFont.Font(size=10))
+        self.instruction_btn.grid(row=0, column=6, padx=(50, 10))
 
     def validate_input(self):
         tree_structure_str = self.tree_structure.get()
@@ -362,6 +415,8 @@ class App:
                     is_valid = False
             expected_no_nodes = degree_count
         
+        tree_str_valid = is_valid
+
         leaf_values = []
         leafs = leaf_values_str.split(",")
         # number of leafs should match degree count from last layer
@@ -388,14 +443,13 @@ class App:
             self.prepare_simulator()
         else:
             print('input is not valid!')
-            self.invalid_input()
+            self.invalid_input(tree_str_valid)
 
     
     def show_instructions(self):
         instruction = tk.Toplevel(self.root)
         instruction.title("Program Instructions")
-        instruction.geometry("500x400")
-        instruction.resizable(False, False)
+        # instruction.geometry("500x400")
 
         instruction_text = (
             "Generate Tree:\n"
@@ -413,26 +467,18 @@ class App:
             "Alpha Beta Pruning Simulation:\n"
             "After generating a tree, simulate Alpha Beta pruning by clicking on '<<' and '>>'.\n\n"
             "Handling Large Trees:\n"
-            "If the input generates a tree that is too large for the canvas, navigate using the scrollbar\n"
-            "buttons to view different parts of the tree."
+            "If the input generates a tree that is too large for the canvas, drag the tree around\n"
+            "to view different parts of the tree. You can also use mouse-wheel for zooming"
         )
 
         label = tk.Label(instruction, text=instruction_text, justify="left", pady=10)
-        label.pack()
+        label.grid(row=0, column=0, pady=10, padx=10)
 
-    def invalid_input(self):
-        error = tk.Toplevel(self.root)
-        error.title("Program Instructions")
-        error.geometry("300x100")
-        error.resizable(False, False)
-
-        error_text = (
-            "Given input is invalid!\n\n"
-            "Please check the instructions for the correct format."
-        )
-
-        label = tk.Label(error, text=error_text, justify="left", pady=10)
-        label.pack()
+    def invalid_input(self, tree_str_valid):
+        if not tree_str_valid:
+            self.tree_structure_input.config(bg="IndianRed1")
+        else:
+            self.leaf_values_input.config(bg="IndianRed1")
 
     def prepare_simulator(self):
         if not self.tree_structure_lst or not self.leaf_values_lst:
@@ -440,16 +486,18 @@ class App:
 
         root_node = TreeNode.generate_tree(self.tree_structure_lst, self.leaf_values_lst)
         
-        # determine canvas size for fixed margin
-        margin_x = 50
+        # fixed margin
+        margin_x = 90
         margin_y = 150
-        canvas_width = margin_x * (len(self.leaf_values_lst) + 1)
-        canvas_height = margin_y * (len(self.tree_structure_lst) + 2)
-        self.canvas.config(width=canvas_width, height=canvas_height)
-
+ 
         root_node.set_position(margin_x, margin_y, margin_x, margin_y)
+        root_node.center_node(root_node.x - self.canvas.winfo_width() / 2, 0)
+        
+        self.canvas.xview_moveto(0)
+        self.canvas.yview_moveto(0)
+
         # draw initial tree
-        self.draw_tree(root_node, 20)
+        self.draw_tree(root_node, self.node_radius)
 
         alpha_beta_simulator = AlphaBetaSimulator(self, root_node)
 
@@ -461,11 +509,16 @@ class App:
         self.all_forward_button.config(command=alpha_beta_simulator.all_forward)
 
     # draws tree on canvas
-    def draw_tree(self, node, radius, parent_x=None, parent_y=None, marked_node=None, cutoffs=None, cutoff=False):
-        # clear canvas on initial call
+    def draw_tree(self, root_node, radius, parent_x=None, parent_y=None, marked_node=None, cutoffs=None, cutoff=False, is_prop_up=None):
+        # clear canvas
         if parent_x is None and parent_y is None:
             self.canvas.delete("all")
 
+        self.draw_separators(root_node)
+        self.draw_nodes(root_node, radius, parent_x, parent_y, marked_node, cutoffs, cutoff, is_prop_up)
+
+    # draws nodes on canvas
+    def draw_nodes(self, node, radius, parent_x=None, parent_y=None, marked_node=None, cutoffs=None, cutoff=False, is_prop_up=None):
         # connect node with parent
         if parent_x is not None and parent_y is not None:
             self.canvas.create_line(parent_x, parent_y, node.x, node.y, width=1, fill="black")
@@ -481,16 +534,24 @@ class App:
                 if cutoff_pair[0] == node and cutoff_pair[1] <= i:
                     cutoff = True
 
-            self.draw_tree(child, radius, node.x, node.y, marked_node, cutoffs, cutoff)
+            self.draw_nodes(child, radius, node.x, node.y, marked_node, cutoffs, cutoff, is_prop_up)
 
-        # draw node as circle
+        # draw node as triangle
         color = "olivedrab1" if node == marked_node else ("light sky blue" if node.is_max else "IndianRed1")
-        self.canvas.create_oval(node.x - radius, node.y - radius, node.x + radius, node.y + radius, fill=color)
+        v_max = [node.x, node.y - 0.866 * radius, node.x - radius, node.y + radius, node.x + radius, node.y + radius]
+        v_min = [node.x - radius, node.y - radius, node.x + radius, node.y - radius, node.x, node.y + 0.866 * radius]
+        vertices = v_max if node.is_max else v_min
+        
+        self.canvas.create_polygon(vertices, fill=color)        
+        
         # draw node value
         text_color = "red" if node == marked_node else "black"
-        self.canvas.create_text(node.x, node.y, text=node.value_string(), font=("Arial", 12, "bold"), fill=text_color)
+        text_yoffset = (0.2 if node.is_max else -0.2) * radius 
+        self.canvas.create_text(node.x, node.y + text_yoffset, text=node.value_string(), font=("Arial", 10, "bold"), fill=text_color)
+        
         # draw alpha beta values
-        self.canvas.create_text(node.x, node.y - 40, text=node.alpha_beta_string(), font=("Arial", 12, "bold"), fill=text_color)
+        display_eq = is_prop_up and node == marked_node
+        self.canvas.create_text(node.x, node.y - 1.5 * self.node_radius, text=node.alpha_beta_string(display_eq), font=("Arial", 10, "bold"), fill=text_color)
 
     def draw_perpendicular_line(self, x1, y1, x2, y2, length=10):
         # direction of the original line
@@ -516,7 +577,30 @@ class App:
         perp_y2 = y_center - perp_dy * length
 
         # draw perpendicular line
-        self.canvas.create_line(perp_x1, perp_y1, perp_x2, perp_y2, width=3, fill="red")
+        self.canvas.create_line(perp_x1, perp_y1, perp_x2, perp_y2, width=4, fill="red")
 
+    # draws dotted separators between tree layers
+    def draw_separators(self, root_node):
+        padding = 75
+        text_padding = 60
+
+        set_x = set()
+        set_y = set()
+        root_node.get_possible_coords(set_x, set_y)
+
+        min_x, max_x = min(set_x) - padding, max(set_x) + padding
+        list_y = sorted(list(set_y))
+
+        # draw separator between each layer
+        for i in range(1, len(list_y)):
+            y1, y2 = list_y[i - 1], list_y[i]
+            y_line = (y1 + y2) / 2
+            self.canvas.create_line(min_x - padding, y_line, max_x + padding, y_line, dash=(4, 2)) 
+        
+        # draw layer type
+        for i, layer_y in enumerate(list_y):
+            text = "MAX" if i % 2 == 0 else "MIN"
+            self.canvas.create_text(max_x + text_padding, layer_y, text=text, font=("Arial", 12, "bold"), fill="black")
+        
 if __name__ == "__main__":
     app = App()
