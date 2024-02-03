@@ -323,11 +323,11 @@ class App:
         self.root.mainloop()
 
     def create_widgets(self): 
-        self.widget_frame = tk.Frame(self.root, bg="lightgray")
+        self.widget_frame = tk.Frame(self.root)
         self.widget_frame.pack(fill=tk.X)
 
         # tree structure input
-        self.tree_structure_label = tk.Label(self.widget_frame, text="Enter tree structure:", font=tkFont.Font(size=10), bg="lightgray")
+        self.tree_structure_label = tk.Label(self.widget_frame, text="Enter tree structure:", font=tkFont.Font(size=10))
         self.tree_structure_label.grid(row=0, column=0, padx=10, pady=10, sticky=tk.W)
 
         self.tree_structure = tk.StringVar()
@@ -337,10 +337,11 @@ class App:
         # default value
         self.tree_structure_input.insert(tk.END, "2|2,2|2,2,2,2")
 
-        self.tree_structure.trace_add("write", lambda *args: self.tree_structure_input.config(bg="white"))
+        def_bg = self.tree_structure_input.cget("bg")
+        self.tree_structure.trace_add("write", lambda *args: self.tree_structure_input.config(bg=def_bg))
 
         # leaf values input
-        self.leaf_values_label = tk.Label(self.widget_frame, text="Enter leaf values:", font=tkFont.Font(size=10), bg="lightgray")
+        self.leaf_values_label = tk.Label(self.widget_frame, text="Enter leaf values:", font=tkFont.Font(size=10))
         self.leaf_values_label.grid(row=1, column=0, padx=10, pady=(0, 10), sticky=tk.W)
 
         self.leaf_values = tk.StringVar()
@@ -350,7 +351,7 @@ class App:
         # default value
         self.leaf_values_input.insert(tk.END, "11,-20,12,-10,-12,-5,-6,2")
 
-        self.leaf_values.trace_add("write", lambda *args: self.leaf_values_input.config(bg="white"))
+        self.leaf_values.trace_add("write", lambda *args: self.leaf_values_input.config(bg=def_bg))
 
         # generate tree button
         self.generate_tree_btn = tk.Button(self.widget_frame, text="Generate tree", command=self.validate_input, font=tkFont.Font(size=10))
@@ -365,7 +366,7 @@ class App:
         self.canvas.pack(fill=tk.BOTH, expand=True)
 
         # simulation controls
-        self.one_step_label = tk.Label(self.widget_frame, text="One forward / backward step:", font=tkFont.Font(size=10), bg="lightgray")
+        self.one_step_label = tk.Label(self.widget_frame, text="One forward / backward step:", font=tkFont.Font(size=10))
         self.one_step_label.grid(row=0, column=3, padx=(20, 10), pady=10, sticky=tk.W)
 
         self.backward_button = tk.Button(self.widget_frame, text="<<", font=tkFont.Font(size=10))
@@ -374,7 +375,7 @@ class App:
         self.forward_button = tk.Button(self.widget_frame, text=">>", font=tkFont.Font(size=10))
         self.forward_button.grid(row=0, column=5, pady=10, sticky=tk.E+tk.W)
 
-        self.all_steps_label = tk.Label(self.widget_frame, text="All forward / backward steps:", font=tkFont.Font(size=10), bg="lightgray")
+        self.all_steps_label = tk.Label(self.widget_frame, text="All forward / backward steps:", font=tkFont.Font(size=10))
         self.all_steps_label.grid(row=1, column=3, padx=(20, 10), pady=(0, 10), sticky=tk.W)
 
         self.all_backward_button = tk.Button(self.widget_frame, text="<<<", font=tkFont.Font(size=10))
@@ -468,7 +469,7 @@ class App:
             "After generating a tree, simulate Alpha Beta pruning by clicking on '<<' and '>>'.\n\n"
             "Handling Large Trees:\n"
             "If the input generates a tree that is too large for the canvas, drag the tree around\n"
-            "to view different parts of the tree. You can also use mouse-wheel for zooming"
+            "to view different parts of the tree. You can also use mouse-wheel for zooming."
         )
 
         label = tk.Label(instruction, text=instruction_text, justify="left", pady=10)
@@ -595,7 +596,7 @@ class App:
         for i in range(1, len(list_y)):
             y1, y2 = list_y[i - 1], list_y[i]
             y_line = (y1 + y2) / 2
-            self.canvas.create_line(min_x - padding, y_line, max_x + padding, y_line, dash=(4, 2)) 
+            self.canvas.create_line(min_x - padding, y_line, max_x + padding, y_line, dash=(4, 2), fill="black") 
         
         # draw layer type
         for i, layer_y in enumerate(list_y):
